@@ -11,6 +11,9 @@ UGAPerceptionComponent::UGAPerceptionComponent(const FObjectInitializer& ObjectI
 	// Default vision parameters
 	VisionParameters.VisionAngle = 90.0f;
 	VisionParameters.VisionDistance = 1000.0;
+
+	TimeToAcknowledge = 2.0f;
+	TimeToLose = 0.5f;
 }
 
 
@@ -130,11 +133,11 @@ void UGAPerceptionComponent::TickComponent(float DeltaTime, enum ELevelTick Tick
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	UpdateAllTargetData();
+	UpdateAllTargetData(DeltaTime);
 }
 
 
-void UGAPerceptionComponent::UpdateAllTargetData()
+void UGAPerceptionComponent::UpdateAllTargetData(float DeltaTime)
 {
 	UGAPerceptionSystem* PerceptionSystem = UGAPerceptionSystem::GetPerceptionSystem(this);
 	if (PerceptionSystem)
@@ -142,20 +145,16 @@ void UGAPerceptionComponent::UpdateAllTargetData()
 		TArray<TObjectPtr<UGATargetComponent>>& TargetComponents = PerceptionSystem->GetAllTargetComponents();
 		for (UGATargetComponent* TargetComponent : TargetComponents)
 		{
-			UpdateTargetData(TargetComponent);
+			UpdateTargetData(DeltaTime, TargetComponent);
 		}
 	}
 }
 
-void UGAPerceptionComponent::UpdateTargetData(UGATargetComponent* TargetComponent)
+void UGAPerceptionComponent::UpdateTargetData(float DeltaTime, UGATargetComponent* TargetComponent)
 {
 	// REMEMBER: the UGAPerceptionComponent is going to be attached to the controller, not the pawn. So we call this special accessor to 
 	// get the pawn that our controller is controlling
 	APawn* OwnerPawn = GetOwnerPawn();
-	if (OwnerPawn == NULL)
-	{
-		return;
-	}
 
 	FTargetData *TargetData = TargetMap.Find(TargetComponent->TargetGuid);
 	if (TargetData == NULL)		// If we don't already have a target data for the given target component, add it
@@ -165,58 +164,32 @@ void UGAPerceptionComponent::UpdateTargetData(UGATargetComponent* TargetComponen
 		TargetData = &TargetMap.Add(TargetGuid, NewTargetData);
 	}
 
+	// TODO PART 3
+	// 
+	// - Update TargetData->bClearLOS
+	//		Use this.VisionParameters to determine whether the target is within the vision cone or not 
+	//		(and ideally do so before you case a ray towards it)
+	// - Update TargetData->Awareness
+	//		On ticks when the AI has a clear LOS, the Awareness should grow
+	//		On ticks when the AI does not have a clear LOS, the Awareness should decay
+	//
+	// Awareness should be clamped to the range [0, 1]
+	// You can add parameters to the UGAPerceptionComponent to control the speed at which awareness rises and falls
+
+
 	if (TargetData)
 	{
-		// TODO PART 3
-		// 
-		// - Update TargetData->bClearLOS
-		//		Use this.VisionParameters to determine whether the target is within the vision cone or not 
-		//		(and ideally do so before you cast a ray towards it)
-		// - Update TargetData->Awareness
-		//		On ticks when the AI has a clear LOS, the Awareness should grow
-		//		On ticks when the AI does not have a clear LOS, the Awareness should decay
-		//
-		// Awareness should be clamped to the range [0, 1]
-		// You can add parameters to the UGAPerceptionComponent to control the speed at which awareness rises and falls
+		AActor* TargetActor = TargetComponent->GetOwner();
+		FVector TargetPoint = TargetActor->GetActorLocation();
 
-		// YOUR CODE HERE
+		TargetData->bClearLos = HasClearLOS(TargetActor, TargetPoint);
 
-		// finding positions of bot and target
+		float AwarenessChangeTime = TargetData->bClearLos ? TimeToAcknowledge : -TimeToLose;
+		float AwarenessChangePerSecond = 1.0f / AwarenessChangeTime;
+		float AwarenessDelta = AwarenessChangePerSecond * DeltaTime;
 
-		// cache reference to target's AActor
-		AActor* targetActor = TargetComponent->GetOwner();
-
-		FVector currentPos = OwnerPawn->GetActorLocation(); // location of bot
-		FVector targetPos = targetActor->GetActorLocation(); // location of player/target
-
-		// finding the angle between the bot and the target
-		FVector pawnDirection = OwnerPawn->GetActorForwardVector().GetSafeNormal();
-		FVector currentDirection = (targetPos - currentPos).GetSafeNormal();
-
-		float dotProd = FVector::DotProduct(pawnDirection, currentDirection);
-		float angle = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(dotProd, -1.0f, 1.0f))); // clamping to avoid precision issues, then using dot product result to calculate angle in radians, then converting to degrees.
-		float deltaTime = GetWorld()->GetDeltaSeconds();
-		if (FVector::Distance(currentPos, targetPos) < VisionParameters.VisionDistance && angle < VisionParameters.VisionAngle)
-		{
-			// player is within the cone. need to raycast and check if in LOS
-			UWorld* World = GetWorld();
-			FHitResult HitResult;
-			FCollisionQueryParams Params;
-			FVector Start = currentPos;
-			FVector End = targetPos;
-			Params.AddIgnoredActor(OwnerPawn);
-			Params.AddIgnoredActor(targetActor);
-			bool bHitSomething = World->LineTraceSingleByChannel(HitResult, Start, End, ECollisionChannel::ECC_Visibility, Params);
-			TargetData->bClearLos = !bHitSomething;
-			TargetData->Awareness = FMath::Clamp(bHitSomething ? TargetData->Awareness - (1.0f/ReactionTime) * deltaTime : TargetData->Awareness + (1.0f / ReactionTime) * deltaTime , 0.0f , 1.0f);// awareness should take 1s to go from 0-1 and vice-versa
-			//UE_LOG(LogTemp, Warning, TEXT("Result: %f"), TargetData->Awareness);
-		}
-		else
-		{
-			// Player is out of range. Gradually reduce the awareness of the bot
-			TargetData->Awareness = FMath::Clamp(TargetData->Awareness - (1.0f / ReactionTime) * deltaTime, 0.0f, 1.0f);
-		}
-		UE_LOG(LogTemp, Warning, TEXT("Result: %f"), TargetData->Awareness);
+		TargetData->Awareness += AwarenessDelta;
+		TargetData->Awareness = FMath::Clamp(TargetData->Awareness, 0.0f, 1.0f);
 	}
 }
 
@@ -226,33 +199,56 @@ const FTargetData* UGAPerceptionComponent::GetTargetData(FGuid TargetGuid) const
 	return TargetMap.Find(TargetGuid);
 }
 
-bool UGAPerceptionComponent::TestVisibility(FVector& CellPosition) const
+
+bool UGAPerceptionComponent::HasClearLOS(const AActor *TargetActor, const FVector& TargetPoint) const
 {
-
-	// Copied the code from the UpdateTargetData function
 	APawn* OwnerPawn = GetOwnerPawn();
-	FVector currentPos = OwnerPawn->GetActorLocation(); // location of bot
-
-	FVector targetPos = FVector(CellPosition.X, CellPosition.Y, currentPos.Z); // This is because I will get only the X and Y coordinates properly here. So I need to fake the z axis to be in the same height as the perceiving bot.
-	FVector pawnDirection = OwnerPawn->GetActorForwardVector().GetSafeNormal();
-	FVector currentDirection = (targetPos - currentPos).GetSafeNormal();
-
-	float dotProd = FVector::DotProduct(pawnDirection, currentDirection);
-	float angle = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(dotProd, -1.0f, 1.0f))); // clamping to avoid precision issues, then using dot product result to calculate angle in radians, then converting to degrees.
-	float deltaTime = GetWorld()->GetDeltaSeconds();
-	if (FVector::Distance(currentPos, targetPos) < VisionParameters.VisionDistance && angle < VisionParameters.VisionAngle)
+	if (OwnerPawn == NULL)
 	{
-		// Cell is within the cone. need to raycast and check if in LOS
-		UWorld* World = GetWorld();
-		FHitResult HitResult;
-		FCollisionQueryParams Params;
-		FVector Start = currentPos;
-		FVector End = CellPosition;
-		Params.AddIgnoredActor(OwnerPawn);
-		bool bHitSomething = World->LineTraceSingleByChannel(HitResult, Start, End, ECollisionChannel::ECC_Visibility, Params);
-		return !bHitSomething;
+		return false;
 	}
 
-	// It's outside the cone of percception of this bot.
-	return false;
+	FVector OwnerLocation = OwnerPawn->GetActorLocation();
+	UWorld* World = GetWorld();
+	bool ClearLos = false;
+
+	float D = FVector::Dist(TargetPoint, OwnerPawn->GetActorLocation());
+	if (D <= VisionParameters.VisionDistance)
+	{
+		float AngleDot = FMath::Cos(FMath::DegreesToRadians(VisionParameters.VisionAngle/2.0f));
+		FVector Forward = OwnerPawn->GetActorForwardVector();
+		FVector OwnerToTarget = TargetPoint - OwnerLocation;
+		OwnerToTarget.Normalize();
+
+		if ((Forward | OwnerToTarget) >= AngleDot)
+		{
+			// within the vision angle
+			// finally actually trace the line
+			FHitResult HitResult;
+			FCollisionQueryParams Params;
+			FVector Start = OwnerLocation;
+			FVector End = TargetPoint;
+			Params.AddIgnoredActor(TargetActor);			// Probably want to ignore the player pawn
+			Params.AddIgnoredActor(OwnerPawn);			// Probably want to ignore the AI themself
+			bool bHitSomething = World->LineTraceSingleByChannel(HitResult, Start, End, ECollisionChannel::ECC_Visibility, Params);
+			ClearLos = !bHitSomething;
+		}
+	}
+
+	return ClearLos;
+}
+
+bool UGAPerceptionComponent::HeardPlayerMove(const AActor* TargetActor, const FVector& TargetPoint) const
+{
+	//Check if Actor is moving
+
+	float speed = TargetActor->GetVelocity().Size();
+
+	//Check if Actor is in range
+	APawn* OwnerPawn = GetOwnerPawn();
+	float Dist = FVector::Distance(TargetPoint, OwnerPawn->GetActorLocation());
+
+	//Return true if Actor is in range and moving
+
+	return speed > 0.1f && Dist < HearingDist;
 }

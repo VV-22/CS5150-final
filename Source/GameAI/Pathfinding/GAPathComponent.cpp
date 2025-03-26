@@ -563,6 +563,7 @@ float UGAPathComponent::GetPathLength() const
 		for (const FPathStep& Step : Steps)
 		{
 			L += FVector::Distance(CurrentPoint, Step.Point);
+			CurrentPoint = Step.Point;
 		}
 
 		return L;

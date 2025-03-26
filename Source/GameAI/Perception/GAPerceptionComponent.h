@@ -50,6 +50,15 @@ class UGAPerceptionComponent : public UActorComponent
 {
 	GENERATED_UCLASS_BODY()
 
+	UPROPERTY(EditAnywhere)
+	float TimeToAcknowledge;
+
+	UPROPERTY(EditAnywhere)
+	float TimeToLose;
+
+	UPROPERTY(EditAnywhere)
+	float HearingDist = 5000;
+
 	// Needed for some bookkeeping (registering the perception component with the the Perception System)
 	// You shouldn't need to touch these.
 	virtual void OnRegister() override;
@@ -58,7 +67,7 @@ class UGAPerceptionComponent : public UActorComponent
 	// It is super easy to forget: this component will usually be attached to the CONTROLLER, not the pawn it's controlling
 	// A lot of times we want access to the pawn (e.g. when sending signals to its movement component).
 	UFUNCTION(BlueprintCallable, BlueprintPure)
-	APawn* GetOwnerPawn() const;
+	APawn *GetOwnerPawn() const;
 
 	// Returns the Target this AI is attending to right now.
 	UFUNCTION(BlueprintCallable)
@@ -72,11 +81,11 @@ class UGAPerceptionComponent : public UActorComponent
 	// The main function used to access latest known information about the AI's current target.
 	// This combined TargetCache information (from the TargetComponent) and TargetData information, which holds THIS AI's individual awareness of the target.
 	UFUNCTION(BlueprintCallable)
-	bool GetCurrentTargetState(FTargetCache& TargetCacheOut, FTargetData& TargetDataOut) const;
+	bool GetCurrentTargetState(FTargetCache &TargetCacheOut, FTargetData &TargetDataOut) const;
 
 	// Currently only for debugging
 	UFUNCTION(BlueprintCallable)
-	void GetAllTargetStates(bool OnlyKnown, TArray<FTargetCache>& TargetCachesOut, TArray<FTargetData>& TargetDatasOut) const;
+	void GetAllTargetStates(bool OnlyKnown, TArray<FTargetCache> &TargetCachesOut, TArray<FTargetData> &TargetDatasOut) const;
 
 	virtual void TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
@@ -84,20 +93,19 @@ class UGAPerceptionComponent : public UActorComponent
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	FVisionParameters VisionParameters;
 
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
-	float ReactionTime;
-
 	// A map from TargetComponent's TargetGuid to target data
 	// This allows each individual perceiving AI to store a little chunk of data for each perceivable target.
 
 	UPROPERTY(BlueprintReadOnly)
 	TMap<FGuid, FTargetData> TargetMap;
 
-	void UpdateAllTargetData();
-	void UpdateTargetData(UGATargetComponent* TargetComponent);
+	void UpdateAllTargetData(float DeltaTime);
+	void UpdateTargetData(float DeltaTime, UGATargetComponent* TargetComponent);
 
 	// Return the FTargetData for the given target
-	const FTargetData* GetTargetData(FGuid TargetGuid) const;
+	const FTargetData *GetTargetData(FGuid TargetGuid) const;
 
-	bool TestVisibility(FVector& CellPosition) const;
+	bool HasClearLOS(const AActor* TargetActor, const FVector& TargetPoint) const;
+
+	bool HeardPlayerMove(const AActor* TargetActor, const FVector& TargetPoint) const;
 };
