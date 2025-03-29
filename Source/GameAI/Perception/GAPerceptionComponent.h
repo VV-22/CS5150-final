@@ -15,7 +15,7 @@ struct FTargetData
 {
 	GENERATED_USTRUCT_BODY()
 
-	FTargetData() : bClearLos(false), Awareness(0.0f) {}
+	FTargetData() : bClearLos(false), Awareness(0.0f) , bHearingPlayer(false) {}
 
 	// The last LOS check of this target
 	// Note: even if the LOS is clear, it doesn't mean the AI is aware of the target (yet)!
@@ -25,6 +25,8 @@ struct FTargetData
 	UPROPERTY(BlueprintReadOnly)
 	float Awareness;
 
+	UPROPERTY(BlueprintReadOnly)
+	bool bHearingPlayer;
 };
 
 
@@ -45,6 +47,17 @@ struct FVisionParameters
 };
 
 
+USTRUCT(BlueprintType)
+struct FSoundParameters
+{
+	GENERATED_USTRUCT_BODY()
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere)
+	float HearingRange = 200;
+	
+};
+
+
 UCLASS(BlueprintType, Blueprintable, meta = (BlueprintSpawnableComponent))
 class UGAPerceptionComponent : public UActorComponent
 {
@@ -58,6 +71,12 @@ class UGAPerceptionComponent : public UActorComponent
 
 	UPROPERTY(EditAnywhere)
 	float HearingDist = 5000;
+
+	UPROPERTY(EditAnywhere)
+	float SoundAcknowledgementTime;
+
+	UPROPERTY(EditAnywhere)
+	float SoundLoseTime;
 
 	// Needed for some bookkeeping (registering the perception component with the the Perception System)
 	// You shouldn't need to touch these.
@@ -92,6 +111,9 @@ class UGAPerceptionComponent : public UActorComponent
 	// Vision parameters
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	FVisionParameters VisionParameters;
+
+	UPROPERTY(BluePrintReadWrite, EditAnywhere)
+	FSoundParameters SoundParameters;
 
 	// A map from TargetComponent's TargetGuid to target data
 	// This allows each individual perceiving AI to store a little chunk of data for each perceivable target.

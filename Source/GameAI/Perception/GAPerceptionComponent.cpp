@@ -183,10 +183,21 @@ void UGAPerceptionComponent::UpdateTargetData(float DeltaTime, UGATargetComponen
 		FVector TargetPoint = TargetActor->GetActorLocation();
 
 		TargetData->bClearLos = HasClearLOS(TargetActor, TargetPoint);
-
+			
 		float AwarenessChangeTime = TargetData->bClearLos ? TimeToAcknowledge : -TimeToLose;
 		float AwarenessChangePerSecond = 1.0f / AwarenessChangeTime;
 		float AwarenessDelta = AwarenessChangePerSecond * DeltaTime;
+		//I'm considering that the bot can hear the player at half the rate of sight.
+		bool canHearPlayer = HeardPlayerMove(TargetActor, TargetPoint);
+
+		float SoundChangeTime = canHearPlayer? SoundAcknowledgementTime : -SoundLoseTime;
+		float SoundChangePerSec = 1.0f/SoundChangeTime;
+		float SoundDelta = SoundChangePerSec * DeltaTime;
+		TargetData->bHearingPlayer = canHearPlayer;
+		if (canHearPlayer)
+		{
+			AwarenessDelta += SoundDelta * 0.5f;
+		}
 
 		TargetData->Awareness += AwarenessDelta;
 		TargetData->Awareness = FMath::Clamp(TargetData->Awareness, 0.0f, 1.0f);
@@ -240,15 +251,21 @@ bool UGAPerceptionComponent::HasClearLOS(const AActor *TargetActor, const FVecto
 
 bool UGAPerceptionComponent::HeardPlayerMove(const AActor* TargetActor, const FVector& TargetPoint) const
 {
-	//Check if Actor is moving
+	//Check if player is moving
 
 	float speed = TargetActor->GetVelocity().Size();
-
-	//Check if Actor is in range
+	float TargetActorX = TargetActor->GetActorLocation().X;
+	float TargetActorY = TargetActor->GetActorLocation().Y;
+	
+	// This is to make sure that the target actor passed and target location passed are in the same place.
+	bool DistanceCheck = FVector::Distance(FVector(TargetActorX, TargetActorY, 0.0f) , FVector(TargetPoint.X, TargetPoint.Y, 0.0f)) < 10.0f;
+	
+	//Check if perceiver is in range
 	APawn* OwnerPawn = GetOwnerPawn();
 	float Dist = FVector::Distance(TargetPoint, OwnerPawn->GetActorLocation());
 
 	//Return true if Actor is in range and moving
-
-	return speed > 0.1f && Dist < HearingDist;
+	// if (DistanceCheck && speed > 0.1f && Dist < HearingDist)
+	// 	UE_LOG(LogTemp, Display, TEXT("Can hear player."));
+	return DistanceCheck && speed > 0.1f && Dist < SoundParameters.HearingRange;
 }

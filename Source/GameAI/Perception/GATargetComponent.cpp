@@ -2,7 +2,9 @@
 #include "Kismet/GameplayStatics.h"
 #include "GameAI/Grid/GAGridActor.h"
 #include "GAPerceptionSystem.h"
+#include "IPropertyTable.h"
 #include "ProceduralMeshComponent.h"
+#include "GeometryCollection/GeometryCollectionParticlesData.h"
 
 
 UGATargetComponent::UGATargetComponent(const FObjectInitializer& ObjectInitializer)
@@ -162,6 +164,10 @@ void UGATargetComponent::OccupancyMapUpdate()
 	if (Grid)
 	{
 		FGAGridMap VisibilityMap(Grid, 0.0f);
+
+		// Similar to the visibility map, I need a sound map.
+		FGAGridMap SoundMap(Grid, 0.0f);
+		
 		float Offset = 50.0f;
 
 		APawn* OwnerPawn = Cast<APawn>(Owner);
@@ -276,6 +282,99 @@ void UGATargetComponent::OccupancyMapUpdate()
 				}
 
 				// STEP 4: Extract the highest-likelihood cell on the omap and refresh the LastKnownState.
+				// if (MaxCell.IsValid())
+				// {
+				// 	LastKnownState.Position = Grid->GetCellPosition(MaxCell);
+				// 	LastKnownState.Position.Z += Offset;
+				// 	LastKnownState.Velocity = FVector::ZeroVector;
+				// }
+			}
+		}
+
+		// At this point, the occupancy map is a probability distribution of the visibility map. Now I need to add the sound map and remake it into a proper map
+		{
+			PerceptionSystem = UGAPerceptionSystem::GetPerceptionSystem(this);
+			FGAGridMap TempMap(Grid, 0.0f);
+			if (PerceptionSystem)
+			{
+				TArray<TObjectPtr<UGAPerceptionComponent>>& PerceptionComponents = PerceptionSystem->GetAllPerceptionComponents();
+				for (UGAPerceptionComponent* PerceptionComponent : PerceptionComponents)
+				{
+					//  Find cells from this AI
+					for (int32 Y = SoundMap.GridBounds.MinY; Y <= SoundMap.GridBounds.MaxY; Y++)
+					{
+						for (int32 X = SoundMap.GridBounds.MinX; X <= SoundMap.GridBounds.MaxX; X++)
+						{
+							float Value;
+							FCellRef Cell(X, Y);
+							// Note, don't bother re-testing if we already know the cell is heard.
+							if (EnumHasAllFlags(Grid->GetCellData(Cell), ECellData::CellDataTraversable))
+							{
+								if (SoundMap.GetValue(Cell, Value) && (Value == 0.0f))
+								{
+									FVector CellPoint = Grid->GetCellPosition(Cell);
+									// UE_LOG(LogTemp, Display, TEXT("Before HeardPlayerMove"));
+									CellPoint.Z += Offset;
+									if (PerceptionComponent->HeardPlayerMove(Owner, CellPoint)) // Pass the player and the position of the cell.
+									{
+										// It can hear the player!
+										UE_LOG(LogTemp, Display, TEXT("HeardPlayerMove"));
+										SoundMap.SetValue(Cell, 1.0f);
+									}
+								}
+							}
+							else
+							{
+								// consider it has no sound if it's not traversable
+								SoundMap.SetValue(Cell, 0.0f);
+							}
+						}
+					}
+				}
+
+				// At this point, we have the visibility map (in the occupancy map), and we have the soundmap. We need to add these and remake the result into a probability distribution.
+
+				float TotalValue = 0.0f;
+				float CurrentValue = 0.0f;
+				for (int32 Y = TempMap.GridBounds.MinY; Y <= TempMap.GridBounds.MaxY; Y++)
+				{
+					for (int32 X = TempMap.GridBounds.MinX; X <= TempMap.GridBounds.MaxX; X++)
+					{
+						float P;
+						FCellRef Cell(X, Y);
+
+						OccupancyMap.GetValue(Cell, P);
+						CurrentValue = P;
+						SoundMap.GetValue(Cell, P);
+						CurrentValue += P;
+						TotalValue += CurrentValue;
+						TempMap.SetValue(Cell, CurrentValue);
+					}
+				}
+
+				//Re-normalizing the Occupancy map
+				FCellRef MaxCell;
+				float MaxP = 0.0f;
+				for (int32 Y = TempMap.GridBounds.MinY; Y <= TempMap.GridBounds.MaxY; Y++)
+				{
+					for (int32 X = TempMap.GridBounds.MinX; X <= TempMap.GridBounds.MaxX; X++)
+					{
+						float P;
+						FCellRef Cell(X, Y);
+
+						TempMap.GetValue(Cell, P);
+						float NewP = P / TotalValue;
+
+						OccupancyMap.SetValue(Cell, NewP);
+						if (NewP > MaxP)
+						{
+							MaxP = NewP;
+							MaxCell = Cell;
+						}
+					}
+				}
+	
+
 				if (MaxCell.IsValid())
 				{
 					LastKnownState.Position = Grid->GetCellPosition(MaxCell);
