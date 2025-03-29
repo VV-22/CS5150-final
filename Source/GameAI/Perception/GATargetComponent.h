@@ -59,11 +59,14 @@ class UGATargetComponent : public UActorComponent
 	
 	// Occupancy Map
 
+	UPROPERTY(EditAnywhere)
+	float OccupancyMapDiffusionPerSecond;
+
 	UPROPERTY(BlueprintReadOnly)
 	FGAGridMap OccupancyMap;
 
-	UPROPERTY(BlueprintReadOnly)
-	bool bDebugOccupancyMap = true;
+	UPROPERTY(BlueprintReadOnly, EditAnywhere)
+	bool bDebugOccupancyMap;
 
 
 	// Cached pointer to the grid actor
@@ -100,6 +103,6 @@ class UGATargetComponent : public UActorComponent
 
 	void OccupancyMapSetPosition(const FVector &Position);
 	void OccupancyMapUpdate();
-	void OccupancyMapDiffuse();
+	void OccupancyMapDiffuse(float DeltaTime);
 
 };

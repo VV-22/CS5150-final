@@ -2,8 +2,9 @@
 #include "Kismet/GameplayStatics.h"
 #include "GameAI/Grid/GAGridActor.h"
 #include "GAPerceptionSystem.h"
+#include "IPropertyTable.h"
 #include "ProceduralMeshComponent.h"
-
+#include "GeometryCollection/GeometryCollectionParticlesData.h"
 
 
 UGATargetComponent::UGATargetComponent(const FObjectInitializer& ObjectInitializer)
@@ -16,6 +17,8 @@ UGATargetComponent::UGATargetComponent(const FObjectInitializer& ObjectInitializ
 
 	// Generate a new guid
 	TargetGuid = FGuid::NewGuid();
+
+	OccupancyMapDiffusionPerSecond = 0.25f;
 }
 
 
@@ -122,7 +125,7 @@ void UGATargetComponent::TickComponent(float DeltaTime, enum ELevelTick TickType
 
 	if (IsKnown())
 	{
-		OccupancyMapDiffuse();
+		OccupancyMapDiffuse(DeltaTime);
 	}
 
 	if (bDebugOccupancyMap)
@@ -137,36 +140,45 @@ void UGATargetComponent::TickComponent(float DeltaTime, enum ELevelTick TickType
 
 void UGATargetComponent::OccupancyMapSetPosition(const FVector& Position)
 {
-	// TODO PART 4
-
-	// We've been observed to be in a given position
-	// Clear out all probability in the omap, and set the appropriate cell to P = 1.0
-
-	OccupancyMap.ResetData(0.0f);
 	const AGAGridActor* Grid = GetGridActor();
-	FCellRef PositionCell = Grid->GetCellRef(Position);
-	OccupancyMap.SetValue(PositionCell, 1.0f);
+	if (Grid)
+	{
+		FCellRef CellRef = Grid->GetCellRef(Position);
+		if (CellRef.IsValid())
+		{
+			// TODO PART 4
+			// We've been observed to be in a given position
+			// Clear out all probability in the omap, and set the appropriate cell to P = 1.0
+			OccupancyMap.ResetData(0.0f);
+			OccupancyMap.SetValue(CellRef, 1.0f);
+		}
+	}
 }
 
 
 void UGATargetComponent::OccupancyMapUpdate()
 {
+	AActor* Owner = GetOwner();
+	FVector OwnerLocation = Owner->GetActorLocation();
 	const AGAGridActor* Grid = GetGridActor();
 	if (Grid)
 	{
 		FGAGridMap VisibilityMap(Grid, 0.0f);
 
+		// Similar to the visibility map, I need a sound map.
+		FGAGridMap SoundMap(Grid, 0.0f);
+		
+		float Offset = 50.0f;
+
+		APawn* OwnerPawn = Cast<APawn>(Owner);
+		if (OwnerPawn)
+		{
+			Offset = OwnerPawn->GetDefaultHalfHeight();
+		}
+
 		// TODO PART 4
 
-		// STEP 1: Build a visibility map, based on the perception components of the AIs in the world
-		// The visibility map is a simple map where each cell is either 0 (not currently visible to ANY perceiver) or 1 (currently visible to one or more perceivers).
-		// 
-		
-		// Find the bounds of the map here.
-		int MinX = VisibilityMap.GridBounds.MinX;
-		int MinY = VisibilityMap.GridBounds.MinY;
-		int MaxX = VisibilityMap.GridBounds.MaxX;
-		int MaxY = VisibilityMap.GridBounds.MaxY;
+		// STEP 1: Build the visibility map, based on the perception components of the AIs in the world
 
 		UGAPerceptionSystem* PerceptionSystem = UGAPerceptionSystem::GetPerceptionSystem(this);
 		if (PerceptionSystem)
@@ -174,143 +186,276 @@ void UGATargetComponent::OccupancyMapUpdate()
 			TArray<TObjectPtr<UGAPerceptionComponent>>& PerceptionComponents = PerceptionSystem->GetAllPerceptionComponents();
 			for (UGAPerceptionComponent* PerceptionComponent : PerceptionComponents)
 			{
-				// Find visible cells for this perceiver.
-				// Reminder: Use the PerceptionComponent.VisionParameters when determining whether a cell is visible or not (in addition to a line trace).
-				// Suggestion: you might find it useful to add a UGAPerceptionComponent::TestVisibility method to the perception component.
-
-				// For now, I'm going through the entire grid for each perceiver. A more efficient approach might be to only search within the radius of the perceiver's visionParams.
-
-				for (int X = MinX; X <= MaxX; X++)
+				//  Find visible cells from this AI
+				for (int32 Y = VisibilityMap.GridBounds.MinY; Y <= VisibilityMap.GridBounds.MaxY; Y++)
 				{
-					for (int Y = MinY; Y <= MaxY; Y++)
+					for (int32 X = VisibilityMap.GridBounds.MinX; X <= VisibilityMap.GridBounds.MaxX; X++)
 					{
-						FCellRef TestCell(X, Y);
-						FVector VectorPos = Grid->GetCellPosition(TestCell);
-						bool bVisible = PerceptionComponent->TestVisibility(VectorPos);
-						VisibilityMap.SetValue(TestCell, bVisible ? 1.0f : 0.0f);
+						float Value;
+						FCellRef Cell(X, Y);
+						// Note, don't bother re-testing if we already know the cell to be visible.
+						if (EnumHasAllFlags(Grid->GetCellData(Cell), ECellData::CellDataTraversable))
+						{
+							if (VisibilityMap.GetValue(Cell, Value) && (Value == 0.0f))
+							{
+								FVector CellPoint = Grid->GetCellPosition(Cell);
+								CellPoint.Z += Offset;
+								if (PerceptionComponent->HasClearLOS(Owner, CellPoint))
+								{
+									// it's visible!
+									VisibilityMap.SetValue(Cell, 1.0f);
+								}
+							}
+						}
+						else
+						{
+							// consider it visible if it's not traversable
+							VisibilityMap.SetValue(Cell, 1.0f);
+						}
 					}
-
 				}
-				
 			}
 		}
 
+		// as long as the target is not standing on a non traversable cell, don't consider that cell visible
+		// other we could potentially be clearing out probability in the location the target actually is.
+		{
+			FCellRef ActualTargetCell = Grid->GetCellRef(OwnerLocation);
+			if (EnumHasAllFlags(Grid->GetCellData(ActualTargetCell), ECellData::CellDataTraversable))
+			{
+				// consider it not visible if the player is standing on it
+				VisibilityMap.SetValue(ActualTargetCell, 0.0f);
+			}
+		}
 
 		// STEP 2: Clear out the probability in the visible cells
-
-		float SumVisibleProb = 0.0f; // This value is required later to renormalize
-
-		// Do I need to check for traversible cells here?
-
-		for (int X = MinX; X <= MaxX; X++)
 		{
-			for (int Y = MinY; Y <= MaxY; Y++)
+			float TotalP = 0.0f;
+
+			for (int32 Y = VisibilityMap.GridBounds.MinY; Y <= VisibilityMap.GridBounds.MaxY; Y++)
 			{
-				FCellRef CurrentCell(X, Y);
-				float OccupancyValue, VisibilityValue;
-				VisibilityMap.GetValue(CurrentCell, VisibilityValue);
-				if (VisibilityValue == 1.0f)
+				for (int32 X = VisibilityMap.GridBounds.MinX; X <= VisibilityMap.GridBounds.MaxX; X++)
 				{
-					// 1.0f = Visible. So the probability is zero in these cells
-					OccupancyMap.GetValue(CurrentCell, OccupancyValue);
-					SumVisibleProb += OccupancyValue;
-					OccupancyMap.SetValue(CurrentCell, 0.0f);
+					float Visible;
+					FCellRef Cell(X, Y);
+
+					if (VisibilityMap.GetValue(Cell, Visible) && (Visible > 0.0f))
+					{
+						OccupancyMap.SetValue(Cell, 0.0f);
+					}
+					else
+					{
+						float P;
+						if (OccupancyMap.GetValue(Cell, P))
+						{
+							TotalP += P;
+						}
+					}
 				}
+			}
+
+			if (TotalP > 0.0f)
+			{
+				float NormFactor = 1.0f / TotalP;
+				float MaxP = 0.0f;
+				FCellRef MaxCell;
+
+				// STEP 3: Renormalize the OMap, so that it's still a valid probability distribution
+				for (int32 Y = OccupancyMap.GridBounds.MinY; Y <= OccupancyMap.GridBounds.MaxY; Y++)
+				{
+					for (int32 X = OccupancyMap.GridBounds.MinX; X <= OccupancyMap.GridBounds.MaxX; X++)
+					{
+						float P;
+						FCellRef Cell(X, Y);
+
+						if (OccupancyMap.GetValue(Cell, P) && (P > 0.0f))
+						{
+							float NewP = P * NormFactor;
+							OccupancyMap.SetValue(Cell, NewP);
+							if (NewP > MaxP)
+							{
+								MaxP = NewP;
+								MaxCell = Cell;
+							}
+						}
+					}
+				}
+
+				// STEP 4: Extract the highest-likelihood cell on the omap and refresh the LastKnownState.
+				// if (MaxCell.IsValid())
+				// {
+				// 	LastKnownState.Position = Grid->GetCellPosition(MaxCell);
+				// 	LastKnownState.Position.Z += Offset;
+				// 	LastKnownState.Velocity = FVector::ZeroVector;
+				// }
 			}
 		}
 
-		// STEP 3: Renormalize the OMap, so that it's still a valid probability distribution
-
-		for (int X = MinX; X <= MaxX; X++)
+		// At this point, the occupancy map is a probability distribution of the visibility map. Now I need to add the sound map and remake it into a proper map
 		{
-			for (int Y = MinY; Y <= MaxY; Y++)
+			PerceptionSystem = UGAPerceptionSystem::GetPerceptionSystem(this);
+			FGAGridMap TempMap(Grid, 0.0f);
+			if (PerceptionSystem)
 			{
-				FCellRef CurrentCell(X, Y);
-				float VisibilityValue;
-				VisibilityMap.GetValue(CurrentCell, VisibilityValue);
-				if (VisibilityValue == 0.0f)
+				TArray<TObjectPtr<UGAPerceptionComponent>>& PerceptionComponents = PerceptionSystem->GetAllPerceptionComponents();
+				for (UGAPerceptionComponent* PerceptionComponent : PerceptionComponents)
 				{
-					// 0.0f = not-visible. So need to renormalize here.
-					float OccupancyValue;
-					OccupancyMap.GetValue(CurrentCell, OccupancyValue);
-					float NormalizedValue = (1.0f / (1 - SumVisibleProb)) * OccupancyValue;
-					OccupancyMap.SetValue(CurrentCell, NormalizedValue);
+					//  Find cells from this AI
+					for (int32 Y = SoundMap.GridBounds.MinY; Y <= SoundMap.GridBounds.MaxY; Y++)
+					{
+						for (int32 X = SoundMap.GridBounds.MinX; X <= SoundMap.GridBounds.MaxX; X++)
+						{
+							float Value;
+							FCellRef Cell(X, Y);
+							// Note, don't bother re-testing if we already know the cell is heard.
+							if (EnumHasAllFlags(Grid->GetCellData(Cell), ECellData::CellDataTraversable))
+							{
+								if (SoundMap.GetValue(Cell, Value) && (Value == 0.0f))
+								{
+									FVector CellPoint = Grid->GetCellPosition(Cell);
+									// UE_LOG(LogTemp, Display, TEXT("Before HeardPlayerMove"));
+									CellPoint.Z += Offset;
+									if (PerceptionComponent->HeardPlayerMove(Owner, CellPoint)) // Pass the player and the position of the cell.
+									{
+										// It can hear the player!
+										UE_LOG(LogTemp, Display, TEXT("HeardPlayerMove"));
+										SoundMap.SetValue(Cell, 1.0f);
+									}
+								}
+							}
+							else
+							{
+								// consider it has no sound if it's not traversable
+								SoundMap.SetValue(Cell, 0.0f);
+							}
+						}
+					}
+				}
+
+				// At this point, we have the visibility map (in the occupancy map), and we have the soundmap. We need to add these and remake the result into a probability distribution.
+
+				float TotalValue = 0.0f;
+				float CurrentValue = 0.0f;
+				for (int32 Y = TempMap.GridBounds.MinY; Y <= TempMap.GridBounds.MaxY; Y++)
+				{
+					for (int32 X = TempMap.GridBounds.MinX; X <= TempMap.GridBounds.MaxX; X++)
+					{
+						float P;
+						FCellRef Cell(X, Y);
+
+						OccupancyMap.GetValue(Cell, P);
+						CurrentValue = P;
+						SoundMap.GetValue(Cell, P);
+						CurrentValue += P;
+						TotalValue += CurrentValue;
+						TempMap.SetValue(Cell, CurrentValue);
+					}
+				}
+
+				//Re-normalizing the Occupancy map
+				FCellRef MaxCell;
+				float MaxP = 0.0f;
+				for (int32 Y = TempMap.GridBounds.MinY; Y <= TempMap.GridBounds.MaxY; Y++)
+				{
+					for (int32 X = TempMap.GridBounds.MinX; X <= TempMap.GridBounds.MaxX; X++)
+					{
+						float P;
+						FCellRef Cell(X, Y);
+
+						TempMap.GetValue(Cell, P);
+						float NewP = P / TotalValue;
+
+						OccupancyMap.SetValue(Cell, NewP);
+						if (NewP > MaxP)
+						{
+							MaxP = NewP;
+							MaxCell = Cell;
+						}
+					}
+				}
+	
+
+				if (MaxCell.IsValid())
+				{
+					LastKnownState.Position = Grid->GetCellPosition(MaxCell);
+					LastKnownState.Position.Z += Offset;
+					LastKnownState.Velocity = FVector::ZeroVector;
 				}
 			}
 		}
-		// STEP 4: Extract the highest-likelihood cell on the omap and refresh the LastKnownState.
-
-		float CurrentMaxValue = 0.0f;
-		FCellRef MaxCell;
-		for (int X = MinX; X <= MaxX; X++)
-		{
-			for (int Y = MinY; Y <= MaxY; Y++)
-			{
-				FCellRef CurrentCell(X, Y);
-				float CurrentValue;
-				OccupancyMap.GetValue(CurrentCell, CurrentValue);
-				if (CurrentValue > CurrentMaxValue)
-				{
-					CurrentMaxValue = CurrentValue;
-					MaxCell = CurrentCell;
-				}
-			}
-		}
-
-		FVector HighestProbabilityPosition = Grid->GetCellPosition(MaxCell);
-		LastKnownState.Set(HighestProbabilityPosition, FVector(0.0f)); // At this point, the velocity of the player is unknown, so I'm setting it to zero.
 	}
-
 }
 
 
-void UGATargetComponent::OccupancyMapDiffuse()
+void UGATargetComponent::OccupancyMapDiffuse(float DeltaTime)
 {
-	// TODO PART 4
-	// Diffuse the probability in the OMAP
-
-	float DiffusionCoeff = 0.1f;
-	AGAGridActor* Grid = GetGridActor();
-	FGAGridMap BufferMap(Grid, 0.0f);
-	int MinX = BufferMap.GridBounds.MinX;
-	int MinY = BufferMap.GridBounds.MinY;
-	int MaxX = BufferMap.GridBounds.MaxX;
-	int MaxY = BufferMap.GridBounds.MaxY;
-	for (int X = MinX; X <= MaxX; X++)
+	const AGAGridActor* Grid = GetGridActor();
+	if (Grid)
 	{
-		for (int Y = MinY; Y <= MaxY; Y++)
+		FGAGridMap ScratchMap(Grid, 0.0f);
+
+		// TODO PART 4
+		// Diffuse the probability in the OMAP
+
+		float DiffusionRate = OccupancyMapDiffusionPerSecond * DeltaTime;
+
+		// How much I'll give an adjacent neighbor
+		// This assumes I give adjacent neighbors Alpha and diagonal neighbors Alpha/sqrt(2) to account for greater distance
+		float Alpha = DiffusionRate / (4.0f + 4.0f / UE_SQRT_2);
+		float DiagonalAlpha = Alpha / UE_SQRT_2;
+
+		for (int32 Y = OccupancyMap.GridBounds.MinY; Y <= OccupancyMap.GridBounds.MaxY; Y++)
 		{
-			//Each cell is X,
-			FCellRef CurrentCell(X, Y);
-			float ProbabilityLeft;
-			OccupancyMap.GetValue(CurrentCell, ProbabilityLeft);
-			float OriginalProb = ProbabilityLeft;
-			TArray<FCellRef> Neighbors;
-			Grid->GetNeighbors(CurrentCell, true, Neighbors);
-			float DiffusedValue;
-			for (FCellRef Neighbor : Neighbors)
+			for (int32 X = OccupancyMap.GridBounds.MinX; X <= OccupancyMap.GridBounds.MaxX; X++)
 			{
-				if (Neighbor.Distance(CurrentCell) > 1.0f)
-				{
-					//Diagonal 
-					DiffusedValue = DiffusionCoeff * OriginalProb * UE_INV_SQRT_2;
-				}
-				else
-				{
-					DiffusedValue = DiffusionCoeff * OriginalProb;
-				}
+				FCellRef Cell(X, Y);
+				float P;
 
-				//Set the value in Buffermap and reduce the value from Probabilityleft
-				float CurrentBufferValue;
-				BufferMap.GetValue(Neighbor, CurrentBufferValue);
-				BufferMap.SetValue(Neighbor, CurrentBufferValue + DiffusedValue);
-				ProbabilityLeft = ProbabilityLeft - DiffusedValue;
+				// Only do anything if I have probability to diffuse
+				if (OccupancyMap.GetValue(Cell, P) && (P > 0.0f))
+				{
+					float AdjacentD = Alpha * P;
+					float DiagonalD = DiagonalAlpha * P;
+					float TotalPDiffused = 0.0f;
+
+					for (int32 DY = -1; DY <= 1; DY++)
+					{
+						for (int32 DX = -1; DX <= 1; DX++)
+						{
+							if ((DX != 0) || (DY != 0))
+							{
+								FCellRef NeighborCell(X + DX, Y + DY);
+								if (Grid->IsValidCell(NeighborCell))
+								{
+									if (EnumHasAllFlags(Grid->GetCellData(NeighborCell), ECellData::CellDataTraversable))
+									{
+										float NP;
+										if (ScratchMap.GetValue(NeighborCell, NP))
+										{
+											bool Adjacent = (DX == 0) || DY == 0;
+											float D = Adjacent ? AdjacentD : DiagonalD;
+											NP += D;
+											TotalPDiffused += D;
+
+											ScratchMap.SetValue(NeighborCell, NP);
+										}
+									}
+								}
+							}
+						}
+					}
+
+					float SP;
+					if (ScratchMap.GetValue(Cell, SP))
+					{
+						// Remember to also give my future self the remaining P that was not diffused
+						ScratchMap.SetValue(Cell, SP + (P - TotalPDiffused));
+					}
+				}
 			}
-
-			float CurrentBufferValue;
-			BufferMap.GetValue(CurrentCell, CurrentBufferValue);
-			BufferMap.SetValue(CurrentCell, CurrentBufferValue + ProbabilityLeft);
 		}
+
+		// Finally, copy the results from the scratch map to the occupancy map
+		OccupancyMap.Data = ScratchMap.Data;
 	}
-	OccupancyMap = BufferMap;
 }

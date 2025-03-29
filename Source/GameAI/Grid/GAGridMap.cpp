@@ -139,5 +139,29 @@ bool FGAGridMap::SetValue(const FCellRef& Cell, float Value)
 	return false;
 }
 
+bool FGAGridMap::IsAllZeros() const
+{
+	int32 Count = XCount * YCount;
+	for (int Index = 0; Index < Count; Index++)
+	{
+		if (Data[Index] > 0)
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
+float FGAGridMap::SumTotal() const
+{
+	int32 Count = XCount * YCount;
+	float Total = 0.0f;
+	for (int Index = 0; Index < Count; Index++)
+	{
+		Total += Data[Index];
+	}
+	return Total;
+}
 
 UE_DISABLE_OPTIMIZATION

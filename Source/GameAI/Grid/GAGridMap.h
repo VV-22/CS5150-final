@@ -92,6 +92,10 @@ struct FGAGridMap
 
 	bool SetValue(const FCellRef& Cell, float Value);
 
+	bool IsAllZeros() const;
+
+	float SumTotal() const;
+
 
 	FORCEINLINE bool IsValid() const
 	{
