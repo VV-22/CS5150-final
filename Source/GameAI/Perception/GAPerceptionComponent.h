@@ -128,6 +128,6 @@ class UGAPerceptionComponent : public UActorComponent
 	const FTargetData *GetTargetData(FGuid TargetGuid) const;
 
 	bool HasClearLOS(const AActor* TargetActor, const FVector& TargetPoint) const;
-
+	UFUNCTION(BlueprintCallable)
 	bool HeardPlayerMove(const AActor* TargetActor, const FVector& TargetPoint) const;
 };

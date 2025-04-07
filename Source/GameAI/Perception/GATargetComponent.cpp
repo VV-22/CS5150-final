@@ -158,6 +158,7 @@ void UGATargetComponent::OccupancyMapSetPosition(const FVector& Position)
 
 void UGATargetComponent::OccupancyMapUpdate()
 {
+	
 	AActor* Owner = GetOwner();
 	FVector OwnerLocation = Owner->GetActorLocation();
 	const AGAGridActor* Grid = GetGridActor();

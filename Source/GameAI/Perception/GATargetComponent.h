@@ -53,6 +53,7 @@ class UGATargetComponent : public UActorComponent
 	UPROPERTY(BlueprintReadOnly)
 	FGuid TargetGuid;
 
+
 	// Last known state of the target
 	UPROPERTY(BlueprintReadOnly)
 	FTargetCache LastKnownState;
