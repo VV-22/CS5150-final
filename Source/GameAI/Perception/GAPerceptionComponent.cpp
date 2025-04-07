@@ -269,3 +269,9 @@ bool UGAPerceptionComponent::HeardPlayerMove(const AActor* TargetActor, const FV
 		UE_LOG(LogTemp, Display, TEXT("Can hear player."));
 	return DistanceCheck && speed > 200.0f && Dist < SoundParameters.HearingRange;
 }
+
+void UGAPerceptionComponent::ResetTargetState()
+{
+	UGAPerceptionSystem* PerceptionSystem = UGAPerceptionSystem::GetPerceptionSystem(this);
+	PerceptionSystem->ResetAllTargetComponents();
+}

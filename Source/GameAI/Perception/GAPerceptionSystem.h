@@ -32,4 +32,6 @@ class UGAPerceptionSystem : public UActorComponent
 
 	static UGAPerceptionSystem* GetPerceptionSystem(const UObject* WorldContextObject);
 
+	void ResetAllTargetComponents();
+
 };

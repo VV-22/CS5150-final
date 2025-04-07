@@ -460,3 +460,9 @@ void UGATargetComponent::OccupancyMapDiffuse(float DeltaTime)
 		OccupancyMap.Data = ScratchMap.Data;
 	}
 }
+
+
+void UGATargetComponent::HidePlayer()
+{
+	LastKnownState.State = GATS_Unknown;
+}

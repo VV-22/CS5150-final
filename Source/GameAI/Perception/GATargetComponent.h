@@ -39,7 +39,6 @@ struct FTargetCache
 		Position = NewPosition;
 		Velocity = NewVelocity;
 	}
-
 };
 
 
@@ -105,5 +104,7 @@ class UGATargetComponent : public UActorComponent
 	void OccupancyMapSetPosition(const FVector &Position);
 	void OccupancyMapUpdate();
 	void OccupancyMapDiffuse(float DeltaTime);
+
+	void HidePlayer();
 
 };

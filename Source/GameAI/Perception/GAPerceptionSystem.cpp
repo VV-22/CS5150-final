@@ -45,3 +45,11 @@ UGAPerceptionSystem* UGAPerceptionSystem::GetPerceptionSystem(const UObject* Wor
 
 	return Result;
 }
+
+void UGAPerceptionSystem::ResetAllTargetComponents()
+{
+	for (TObjectPtr<UGATargetComponent> val : TargetComponents)
+	{
+		val->HidePlayer();
+	}
+}
