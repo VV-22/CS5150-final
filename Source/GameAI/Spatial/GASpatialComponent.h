@@ -49,6 +49,10 @@ class UGASpatialComponent : public UActorComponent
 	UFUNCTION(BlueprintCallable, BlueprintPure)
 	APawn *GetOwnerPawn() const;
 
+	// It is super easy to forget: this component will usually be attached to the CONTROLLER, not the pawn it's controlling
+	// A lot of times we want access to the pawn (e.g. when sending signals to its movement component).
+	UFUNCTION(BlueprintCallable, BlueprintPure)
+	AActor *GetTargetData(FTargetCache& TargetCacheOut) const;
 
 	// Core functionality
 

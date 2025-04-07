@@ -505,7 +505,11 @@ void UGAPathComponent::FollowPath()
 	FVector StartPoint = Owner->GetActorLocation();
 
 	check(State == GAPS_Active);
-	check(Steps.Num() > 0);
+	if (Steps.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("FollowPath called with empty Steps array!"));
+		return;
+	}
 
 	// Always follow the first step, assuming that we are refreshing the whole path every tick
 	FVector V = Steps[0].Point - StartPoint;
@@ -563,6 +567,7 @@ float UGAPathComponent::GetPathLength() const
 		for (const FPathStep& Step : Steps)
 		{
 			L += FVector::Distance(CurrentPoint, Step.Point);
+			CurrentPoint = Step.Point;
 		}
 
 		return L;

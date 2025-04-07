@@ -88,6 +88,25 @@ APawn* UGASpatialComponent::GetOwnerPawn() const
 }
 
 
+AActor* UGASpatialComponent::GetTargetData(FTargetCache &TargetCacheOut) const
+{
+	AActor* Result = NULL;
+	AActor* Owner = GetOwner();
+	UGAPerceptionComponent *PerceptionComponent = Owner->GetComponentByClass<UGAPerceptionComponent>();
+
+	if (PerceptionComponent)
+	{
+		UGATargetComponent *TargetComponent = PerceptionComponent->GetCurrentTarget();
+		if (TargetComponent)
+		{
+			Result = TargetComponent->GetOwner();
+			TargetCacheOut = TargetComponent->GetTargetCache();
+		}
+	}
+
+	return Result;
+}
+
 bool UGASpatialComponent::ChoosePosition(bool PathfindToPosition, bool Debug)
 {
 	bool Result = false;
@@ -243,15 +262,10 @@ void UGASpatialComponent::EvaluateLayer(const FFunctionLayer& Layer, const FGAGr
 {
 	UWorld* World = GetWorld();
 	AActor* OwnerPawn = GetOwnerPawn();
-
-	UGAPerceptionComponent* PerceptionComponent = OwnerPawn->FindComponentByClass<UGAPerceptionComponent>();
-	FTargetCache TargetCache;
-	FTargetData TargetData;
-	PerceptionComponent->GetCurrentTargetState(TargetCache, TargetData);
 	const AGAGridActor* Grid = GetGridActor();
-	APawn *PlayerPawn = UGameplayStatics::GetPlayerPawn(this, 0);
-	//FVector TargetPosition = PlayerPawn->GetActorLocation();
-	FVector TargetPosition = TargetCache.Position;
+	FTargetCache TargetData;
+	AActor* TargetActor = GetTargetData(TargetData);
+	FVector TargetPosition = TargetData.Position;
 	FVector Offset(0.0f, 0.0f, 60.0f);
 
 	TArray<FVector> AllyPositions;
@@ -264,7 +278,7 @@ void UGASpatialComponent::EvaluateLayer(const FFunctionLayer& Layer, const FGAGr
 
 		for (AActor* Actor : Actors)
 		{
-			if (Actor == OwnerPawn)
+			if ((Actor == OwnerPawn) || (Actor == TargetActor))
 			{
 				continue;
 			}
@@ -341,7 +355,7 @@ void UGASpatialComponent::EvaluateLayer(const FFunctionLayer& Layer, const FGAGr
 						FCollisionQueryParams Params;
 						FVector Start = CellPosition;
 						FVector End = TargetPosition;
-						Params.AddIgnoredActor(PlayerPawn);			// Probably want to ignore the player pawn
+						Params.AddIgnoredActor(TargetActor);		// Probably want to ignore the target actor
 						Params.AddIgnoredActor(OwnerPawn);			// Probably want to ignore the AI themself
 						bool bHitSomething = World->LineTraceSingleByChannel(HitResult, Start, End, ECollisionChannel::ECC_Visibility, Params);
 						Value = bHitSomething ? 0.0f : 1.0f;
