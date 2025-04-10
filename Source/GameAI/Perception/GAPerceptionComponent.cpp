@@ -265,8 +265,8 @@ bool UGAPerceptionComponent::HeardPlayerMove(const AActor* TargetActor, const FV
 	float Dist = FVector::Distance(TargetPoint, OwnerPawn->GetActorLocation());
 
 	//Return true if Actor is in range and moving
-	if (DistanceCheck && speed > 200.0f && Dist < HearingDist)
-		UE_LOG(LogTemp, Display, TEXT("Can hear player."));
+	// if (DistanceCheck && speed > 200.0f && Dist < HearingDist)
+	// 	UE_LOG(LogTemp, Display, TEXT("Can hear player."));
 	return DistanceCheck && speed > 200.0f && Dist < SoundParameters.HearingRange;
 }
 
