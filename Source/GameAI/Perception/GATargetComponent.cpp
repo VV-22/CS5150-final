@@ -2,7 +2,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "GameAI/Grid/GAGridActor.h"
 #include "GAPerceptionSystem.h"
-#include "IPropertyTable.h"
+//#include "IPropertyTable.h"
 #include "ProceduralMeshComponent.h"
 #include "GeometryCollection/GeometryCollectionParticlesData.h"
 
